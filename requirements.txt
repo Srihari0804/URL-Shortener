@@ -1,2 +1,9 @@
 python-dotenv
 SQLAlchemy
+pydantic
+fastapi
+passlib
+uvicorn
+email-validator
+psycopg2
+bcrypt==3.2.2
