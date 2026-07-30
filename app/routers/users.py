@@ -83,18 +83,7 @@ def delete_user(api_key:str = Security(my_key_grabber), db:Session = Depends(get
 
 @router.get("/me")
 def get_user(api_key:str = Security(my_key_grabber),db:Session = Depends(get_db)):
-    if not api_key:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
-                            detail="API-Key Empty")
-
-    hashed_api = utils.hash_api_key(api_key)
-    user_query = db.query(models.Users).filter(models.Users.api_key == hashed_api)
-    user = user_query.first()
-
     # not valid api key
-    if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
-                            detail="Invalid API-Key")
-
+    user = utils.get_curr_user(api_key,db)
     return {"email":user.email}
 
