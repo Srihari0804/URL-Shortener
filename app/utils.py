@@ -5,6 +5,9 @@ import hashlib
 from sqlalchemy.orm import Session
 from . import models
 import string
+import time
+import uuid
+
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated = "auto")
 
@@ -42,3 +45,12 @@ def generate_short_code(length: int = 6) -> str:
 
     # Pick a random character 6 times and join them together
     return "".join(secrets.choice(chars) for _ in range(length))
+
+
+def unique_request_id():
+    # Current Unix timestamp in milliseconds
+    timestamp = int(time.time() * 1000)
+    # Generate a random UUID
+    unique_id = uuid.uuid4()
+    # Combine them
+    return f"{timestamp}-{unique_id}"
