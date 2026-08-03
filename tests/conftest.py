@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 from app.database import Base,get_db
 from app.main import app
 
-SQLALCHEMY_DATABASE_URL = "postgresql://username:password@localhost/url_shotner_testing_db"
+SQLALCHEMY_DATABASE_URL = "postgresql://postgres:root@localhost/url_shortner_testing_db"
 engine = create_engine(SQLALCHEMY_DATABASE_URL)
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
