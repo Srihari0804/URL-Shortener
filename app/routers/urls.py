@@ -1,5 +1,5 @@
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from fastapi.responses import RedirectResponse
 from fastapi import APIRouter,status, Depends, Security, HTTPException, Request
 from .. import schemas, utils, models
@@ -7,7 +7,7 @@ from ..database import get_db
 from sqlalchemy.orm import Session
 from fastapi.security import APIKeyHeader
 from typing import List
-from ..redis_client import redis_client
+from ..redis_client import get_redis
 import json
 
 router = APIRouter(
@@ -16,7 +16,7 @@ router = APIRouter(
 )
 my_key_grabber = APIKeyHeader(name="API-Key")
 
-async def rate_limiter(api_key:str = Security(my_key_grabber)):
+async def rate_limiter(api_key:str = Security(my_key_grabber),redis_client = Depends(get_redis)):
     now = time.time(); window = 60; limit = 100
 
     await redis_client.zremrangebyscore(f"ratelimit:{api_key}", min=0, max=now - window)
@@ -71,7 +71,7 @@ def get_stats(id:int, api_key:str = Security(my_key_grabber), db:Session = Depen
     return stats
 
 @router.delete("/{id}", status_code=status.HTTP_204_NO_CONTENT,dependencies=[Depends(rate_limiter)])
-async def delete_url(id:int,api_key:str = Security(my_key_grabber),db:Session = Depends(get_db)):
+async def delete_url(id:int,api_key:str = Security(my_key_grabber),db:Session = Depends(get_db),redis_client = Depends(get_redis)):
     user = utils.get_curr_user(api_key, db)
     url_query = db.query(models.URLS).filter(models.URLS.id == id)
 
@@ -94,7 +94,7 @@ async def delete_url(id:int,api_key:str = Security(my_key_grabber),db:Session = 
 
 
 @router.get("/{short_code}")
-async def redirect(short_code: str, request: Request, db:Session = Depends(get_db)):
+async def redirect(short_code: str, request: Request, db:Session = Depends(get_db), redis_client = Depends(get_redis)):
     cached = await redis_client.get(short_code)
     if cached:
         data = json.loads(cached)
@@ -107,7 +107,7 @@ async def redirect(short_code: str, request: Request, db:Session = Depends(get_d
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
                                 detail="Invalid short code")
 
-        if db_row.expires_at and db_row.expires_at < datetime.now():
+        if db_row.expires_at and db_row.expires_at < datetime.now(timezone.utc):
             raise HTTPException(status_code=status.HTTP_410_GONE,
                                 detail="This short link has expired"
                                 )

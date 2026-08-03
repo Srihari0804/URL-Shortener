@@ -26,3 +26,16 @@ def client(session):
 
     app.dependency_overrides[get_db] = override_get_db
     yield TestClient(app)
+
+
+@pytest.fixture
+def auth_header(client: TestClient):
+    payload = {
+        "email": "url_tester@example.com",
+        "password": "testpassword123"
+    }
+    response = client.post("/users/signup", json=payload)
+
+    api_key = response.json()["api_key"]
+
+    return {"API-Key": api_key}
