@@ -2,3 +2,6 @@ venv
 .env
 .idea
 __pycache__
+calculation.py
+test.py
+test_calculation.py

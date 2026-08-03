@@ -8,3 +8,4 @@ email-validator
 psycopg2
 bcrypt==3.2.2
 redis
+pytest

@@ -19,7 +19,7 @@ headers = {
 """
 i = 1
 while True:
-    # Send POST request
+    # Send get request
     response = requests.get(url, headers=headers)
     print(i)
     i += 1
