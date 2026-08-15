@@ -63,7 +63,7 @@ url_shortner/
 
 - Python 3.10+
 - PostgreSQL running locally
-- Redis server running on `localhost:6379`
+- Redis server (defaults to `localhost:6379`; configurable via `.env`)
 
 ### 1. Clone the repository
 
@@ -96,13 +96,19 @@ Create a `.env` file in the project root:
 
 ```env
 SQLALCHEMY_DATABASE_URL=postgresql://<user>:<password>@localhost/<db_name>
+REDIS_HOST=localhost
+REDIS_PORT=6379
 ```
 
 ### 5. Create the database
 
 Make sure a PostgreSQL database matching the URL above exists. Tables are auto-created on startup via `Base.metadata.create_all()`.
 
-### 6. Start the server
+### 6. Make sure redis is running
+
+`docker run --name redis-cache -p 6379:6379 redis:latest`
+
+### 7. Start the server
 
 ```bash
 uvicorn app.main:app --reload
@@ -171,6 +177,24 @@ On redirect (`GET /urls/{short_code}`):
 
 ---
 
+## 🎯 Design Decisions
+
+- **Cascade deletes** — Deleting a user cascades to their URLs and clicks (`ondelete="CASCADE"`), chosen for schema simplicity over retaining orphaned analytics data.
+- **Sync DB + async Redis** — SQLAlchemy sessions are synchronous while Redis calls are async, since FastAPI safely runs sync routes in a thread pool. Fully async DB access (via `asyncpg`) is a natural next optimization.
+- **Sliding window over fixed window** — Chosen to avoid the boundary-burst problem of fixed-window rate limiting, at the cost of slightly more Redis operations per request.
+- **SHA-256 for API keys (not bcrypt)** — API key lookups must be fast and deterministic for every authenticated request. Unlike passwords, where slow hashing deters brute-force attacks on leaked hashes, API keys are high-entropy secrets (32 bytes of randomness), making SHA-256 a safe and practical choice.
+
+---
+
+## ⚠️ Known Limitations & Scaling Notes
+
+- **Cache staleness on update** — Cached redirects may serve briefly-stale data for up to the 1-hour TTL if the underlying URL is deleted and the delete-invalidation call to Redis fails or races.
+- **Rate limiter race condition** — The `zremrangebyscore` → `zcard` → `zadd` pattern is not atomic; concurrent requests near the limit could both pass. A Redis pipeline or Lua script would close this gap.
+- **Horizontal scaling** — Rate-limit keys (`ratelimit:{api_key}`) are fully independent per user, making this design naturally shardable across a Redis Cluster if traffic grows beyond a single instance.
+- **Expired URL cleanup** — URLs past their `expires_at` are rejected at redirect time (`410 Gone`) but are not periodically purged from the database. A background task (e.g., APScheduler or Celery beat) would handle this at scale.
+
+---
+
 ## 🧪 Testing
 
 Tests use a **separate PostgreSQL database** (`url_shortner_testing_db`) and pytest fixtures that drop & recreate all tables for each test session.
@@ -208,7 +232,6 @@ Tests use a **separate PostgreSQL database** (`url_shortner_testing_db`) and pyt
 
 ## 📌 Notes
 
-- **Expired URL cleanup** — URLs with a past `expires_at` are rejected at redirect time (`410 Gone`) but are not yet periodically purged from the database. This is a planned enhancement (see `main.py` TODO).
 - **Short code collisions** — The `generate_short_code()` function produces 6-character Base62 codes (~56 billion combinations). A retry loop ensures uniqueness against the database.
 - **API key security** — Raw API keys are never stored. Only SHA-256 hashes are persisted, making database leaks non-exploitable.
 
@@ -216,4 +239,4 @@ Tests use a **separate PostgreSQL database** (`url_shortner_testing_db`) and pyt
 
 ## 📜 License
 
-This project is open-source. Add a license of your choice.
+This project is licensed under the [MIT License](https://opensource.org/licenses/MIT).
