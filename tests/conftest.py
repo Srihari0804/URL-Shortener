@@ -6,7 +6,7 @@ from app.database import Base,get_db
 from app.main import app
 import os
 
-SQLALCHEMY_DATABASE_URL = os.getenv("Test_database_Url")
+SQLALCHEMY_DATABASE_URL = os.getenv("TEST_DATABASE_URL")
 engine = create_engine(SQLALCHEMY_DATABASE_URL)
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
