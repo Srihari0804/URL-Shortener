@@ -2,7 +2,7 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from fastapi.testclient import TestClient
-from app.database import get_db
+from app.database import get_db, Base
 from app.main import app
 import os
 
@@ -11,7 +11,10 @@ engine = create_engine(SQLALCHEMY_DATABASE_URL)
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 @pytest.fixture
-def session(): #No need to erase the tables as we are using CI
+def session():
+    Base.metadata.drop_all(bind=engine) #Erase all prev tables and create new
+    Base.metadata.create_all(bind=engine)
+
     db = TestingSessionLocal()
     try:
         yield db
