@@ -1,6 +1,6 @@
 # 🔗 URL Shortener API
 
-A RESTful URL shortening service built with **FastAPI**, **PostgreSQL**, and **Redis**. Supports user registration via API keys, short link creation with optional expiration, click analytics, and Redis-backed rate limiting & caching.
+A RESTful URL shortening service built with **FastAPI**, **PostgreSQL**, and **Redis**. Supports user registration via API keys, short link creation with optional expiration, click analytics, Redis-backed rate limiting & caching, automated expired URL cleanup, and a full CI/CD pipeline deploying to Docker Hub.
 
 ---
 
@@ -8,11 +8,14 @@ A RESTful URL shortening service built with **FastAPI**, **PostgreSQL**, and **R
 
 - **Shorten URLs** — Generate unique Base62 short codes for any URL
 - **Optional Expiration** — Set a TTL on short links; expired links return `410 Gone`
+- **Automated Cleanup** — Background scheduler (APScheduler) purges expired URLs from the database every hour
 - **Click Analytics** — Track every redirect with IP address, user-agent, and timestamp
 - **API Key Authentication** — Secure all URL operations with SHA-256 hashed API keys
 - **Rate Limiting** — Redis sorted-set sliding window (100 requests / 60s per key)
 - **Redis Caching** — Frequently accessed short codes are cached for 1 hour, reducing database load
 - **User Management** — Sign up, view profile, regenerate API key, and delete account
+- **Dockerized** — Full Docker Compose setup (app + PostgreSQL + Redis) for one-command deployment
+- **CI/CD** — GitHub Actions pipeline: test → build → push to Docker Hub on every push to `main`
 
 ---
 
@@ -26,6 +29,9 @@ A RESTful URL shortening service built with **FastAPI**, **PostgreSQL**, and **R
 | Auth | API Key (header-based, SHA-256 hashed) |
 | Validation | Pydantic v2 |
 | Password Hashing | bcrypt (via passlib) |
+| Background Jobs | APScheduler |
+| Containerization | Docker & Docker Compose |
+| CI/CD | GitHub Actions → Docker Hub |
 | Testing | pytest + FastAPI `TestClient` |
 
 ---
@@ -36,7 +42,7 @@ A RESTful URL shortening service built with **FastAPI**, **PostgreSQL**, and **R
 url_shortner/
 ├── app/
 │   ├── __init__.py
-│   ├── main.py            # FastAPI app entry point
+│   ├── main.py            # FastAPI app entry point + lifespan scheduler
 │   ├── database.py        # SQLAlchemy engine, session & dependency
 │   ├── models.py          # ORM models (Users, URLS, Clicks)
 │   ├── schemas.py         # Pydantic request/response schemas
@@ -50,6 +56,11 @@ url_shortner/
 │   ├── conftest.py        # Fixtures: test DB, client, auth header
 │   ├── test_users.py      # User route tests
 │   └── test_urls.py       # URL route tests
+├── .github/
+│   └── workflows/
+│       └── ci.yml         # CI/CD pipeline (test → build → push to Docker Hub)
+├── Dockerfile             # App container image
+├── docker-compose.yml     # Multi-service orchestration (app + Postgres + Redis)
 ├── requirements.txt
 ├── .env                   # Environment variables (not committed)
 └── .gitignore
@@ -59,20 +70,34 @@ url_shortner/
 
 ## 🚀 Getting Started
 
-### Prerequisites
+### Option A: Docker Compose (Recommended)
+
+The easiest way to run the entire stack — no manual setup required:
+
+```bash
+git clone <repo-url>
+cd url_shortner
+docker compose up --build
+```
+
+This spins up **three containers** (FastAPI app, PostgreSQL, Redis) with networking, health checks, and persistent storage pre-configured. The API will be available at `http://localhost:8000`.
+
+### Option B: Manual Setup
+
+#### Prerequisites
 
 - Python 3.10+
 - PostgreSQL running locally
 - Redis server (defaults to `localhost:6379`; configurable via `.env`)
 
-### 1. Clone the repository
+#### 1. Clone the repository
 
 ```bash
 git clone <repo-url>
 cd url_shortner
 ```
 
-### 2. Create and activate a virtual environment
+#### 2. Create and activate a virtual environment
 
 ```bash
 python -m venv venv
@@ -84,13 +109,13 @@ venv\Scripts\activate
 source venv/bin/activate
 ```
 
-### 3. Install dependencies
+#### 3. Install dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 4. Configure environment variables
+#### 4. Configure environment variables
 
 Create a `.env` file in the project root:
 
@@ -100,15 +125,17 @@ REDIS_HOST=localhost
 REDIS_PORT=6379
 ```
 
-### 5. Create the database
+#### 5. Create the database
 
 Make sure a PostgreSQL database matching the URL above exists. Tables are auto-created on startup via `Base.metadata.create_all()`.
 
-### 6. Make sure redis is running
+#### 6. Make sure Redis is running
 
-`docker run --name redis-cache -p 6379:6379 redis:latest`
+```bash
+docker run --name redis-cache -p 6379:6379 redis:latest
+```
 
-### 7. Start the server
+#### 7. Start the server
 
 ```bash
 uvicorn app.main:app --reload
@@ -177,12 +204,62 @@ On redirect (`GET /urls/{short_code}`):
 
 ---
 
+## 🧹 Expired URL Cleanup
+
+Expired URLs are handled at two levels:
+
+1. **At redirect time** — If a user hits an expired short code, the API returns `410 Gone` immediately
+2. **Background cleanup** — An APScheduler job runs **every hour** during the app's lifespan, deleting all URLs whose `expires_at` has passed. This prevents expired data from accumulating in the database
+
+---
+
+## 🔄 CI/CD Pipeline
+
+The project uses **GitHub Actions** for continuous integration and deployment:
+
+```
+Push to main → Run Tests (pytest) → Build Docker Image → Push to Docker Hub
+              └─ PR to main → Run Tests only (no deploy)
+```
+
+- **CI (test)**: Spins up PostgreSQL and Redis service containers, installs dependencies, runs `pytest`
+- **CD (deploy)**: On push to `main` only — builds the Docker image and pushes to Docker Hub with two tags:
+  - `latest` — always points to the most recent build
+  - `<commit-sha>` — for version traceability
+
+---
+
+## 🐳 Docker
+
+### Dockerfile
+
+The app image is built from a Python base, installs dependencies, copies the application code, and runs Uvicorn on port 8000.
+
+### Docker Compose
+
+`docker-compose.yml` orchestrates three services:
+
+| Service | Image | Purpose |
+|---|---|---|
+| `db` | `postgres:16-alpine` | PostgreSQL database with persistent volume and health checks |
+| `redis` | `redis:alpine` | Redis for caching and rate limiting |
+| `web` | Built from `Dockerfile` | FastAPI application, waits for `db` and `redis` before starting |
+
+```bash
+docker compose up --build    # Start all services
+docker compose down          # Stop all services
+docker compose down -v       # Stop and delete database volume
+```
+
+---
+
 ## 🎯 Design Decisions
 
 - **Cascade deletes** — Deleting a user cascades to their URLs and clicks (`ondelete="CASCADE"`), chosen for schema simplicity over retaining orphaned analytics data.
 - **Sync DB + async Redis** — SQLAlchemy sessions are synchronous while Redis calls are async, since FastAPI safely runs sync routes in a thread pool. Fully async DB access (via `asyncpg`) is a natural next optimization.
 - **Sliding window over fixed window** — Chosen to avoid the boundary-burst problem of fixed-window rate limiting, at the cost of slightly more Redis operations per request.
 - **SHA-256 for API keys (not bcrypt)** — API key lookups must be fast and deterministic for every authenticated request. Unlike passwords, where slow hashing deters brute-force attacks on leaked hashes, API keys are high-entropy secrets (32 bytes of randomness), making SHA-256 a safe and practical choice.
+- **APScheduler for cleanup** — Lightweight, in-process scheduler avoids the operational overhead of an external task queue (Celery) for a single periodic job.
 
 ---
 
@@ -191,7 +268,7 @@ On redirect (`GET /urls/{short_code}`):
 - **Cache staleness on update** — Cached redirects may serve briefly-stale data for up to the 1-hour TTL if the underlying URL is deleted and the delete-invalidation call to Redis fails or races.
 - **Rate limiter race condition** — The `zremrangebyscore` → `zcard` → `zadd` pattern is not atomic; concurrent requests near the limit could both pass. A Redis pipeline or Lua script would close this gap.
 - **Horizontal scaling** — Rate-limit keys (`ratelimit:{api_key}`) are fully independent per user, making this design naturally shardable across a Redis Cluster if traffic grows beyond a single instance.
-- **Expired URL cleanup** — URLs past their `expires_at` are rejected at redirect time (`410 Gone`) but are not periodically purged from the database. A background task (e.g., APScheduler or Celery beat) would handle this at scale.
+- **Scheduler in multi-instance deployments** — APScheduler runs per process, so running multiple app instances would create duplicate cleanup jobs. A distributed lock (e.g., Redis-based) or an external scheduler would be needed at scale.
 
 ---
 
