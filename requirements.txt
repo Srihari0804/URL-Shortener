@@ -10,3 +10,4 @@ bcrypt==3.2.2
 redis
 pytest
 httpx2
+apscheduler
